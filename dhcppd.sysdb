@@ -1,0 +1,6 @@
+agentName:dhcppd
+
+Include: EosSdk_agent.include
+Include: EosSdk_system.include
+Include: EosSdk_ip_intf.include
+Include: EosSdk_intf.include
