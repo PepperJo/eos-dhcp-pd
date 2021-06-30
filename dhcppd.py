@@ -9,6 +9,7 @@ import socket
 import threading
 import json
 import re
+from datetime import datetime
 
 prefix48Regex = re.compile("^([a-fA-F0-9]{1,4}:){1,3}:\\/48$")
 
@@ -126,6 +127,10 @@ class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
         self.dhclient = dhclient(self.workingDir, kernelInterface, callback)
         self.dhclient.start()
 
+    @staticmethod
+    def unixTimestampToString(unixTimestamp):
+        return datetime.utcfromtimestamp(int(unixTimestamp)).strftime('%Y-%m-%d %H:%M:%S')
+
     def on_dhclient_event(self, event):
         self.tracer.trace5("Python Agent event {}".format(event))
         reason = event.get('reason')
@@ -138,7 +143,7 @@ class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
         if 'new_ip6_prefix' in event:
             self.agentMgr.status_set('Delegated Prefix:', event['new_ip6_prefix'])
         if 'new_life_starts' in event:
-            self.agentMgr.status_set('Lifetime Starts:', event['new_life_starts'])
+            self.agentMgr.status_set('Lifetime Starts:', dhcppd.unixTimestampToString(event['new_life_starts']))
         if 'new_preferred_life' in event:
             self.agentMgr.status_set('Preferred Lifetime:', event['new_preferred_life'])
         if 'new_max_life' in event:
