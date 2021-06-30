@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import os
 import sys
@@ -16,20 +16,17 @@ def run(environ):
     if sockFilePath is None:
         syslog.syslog("Socket file path missing! (-e SOCK_PATH=...)")
         return
-    returnValue = 0
-    for _ in range(3):
-        try:
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            sock.connect(sockFilePath)
-            events = { k: v for k, v in environ.items() if re.match(event_regex, k)}
-            syslog.syslog(environ.keys() - events.keys())
-            sock.sendall(json.dumps(events))
-            sock.close()
-        except Exception as e:
-            syslog.syslog(str(e))
-            returnValue = -1
-        else:
-            break # successful
-    sys.exit(returnValue)
+    syslog.syslog(str(environ))
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        sock.connect(sockFilePath)
+        events = { k: v for k, v in environ.items() if re.match(event_regex, k)}
+        sock.sendmsg(json.dumps(events))
+        sock.close()
+    except Exception as e:
+        syslog.syslog(str(e))
+        sys.exit(-1)
+        
+    
 
 run(os.environ)

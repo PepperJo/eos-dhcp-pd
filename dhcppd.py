@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import sys
 import syslog
@@ -24,9 +24,8 @@ class dhclient:
         except OSError as e:
             if os.path.exists(sockFilePath):
                 raise e
-        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
         self.sock.bind(sockFilePath)
-        self.sock.listen(1)
         self.callback = callback
         self.sockCommThread = threading.Thread(target=self.handleEvent)
         self.sockCommThread.start()
@@ -39,7 +38,7 @@ class dhclient:
         leaseFilePath = workingDir + '/dhclient.lease'
         # -6 = ipv6, -P = prefix delegation, -nw = do not wait for ip acquired
         self.args = ['-6', '-P', '-nw', 
-                     '-e', 'SOCK_FILE=\"{}\"'.format(sockFilePath),
+                     '-e', 'SOCK_FILE={}'.format(sockFilePath),
                      '-sf', scriptFilePath,
                      '-pf', self.pidFilePath,
                      '-lf', leaseFilePath, interface]
@@ -74,22 +73,16 @@ class dhclient:
             return True
 
     def handleEvent(self):
-        # retry 3 times before giving up
-        for _ in range(3):
-            try:
-                conn, _ = self.sock.accept()
-                while True:
-                    data = self.sock.recv(1024)
-                    event = json.loads(data)
-                    syslog.syslog(event)
-                    self.callback(event)
-                    if not data:
-                        break
-                conn.close()
-            except Exception as e:
-                syslog.syslog("DHCP-PD Agent: dhclient event thread threw exception {}".format(e))
-        syslog.syslog("DHCP-PD Agent: dhclient event thread retry exceeded. Stopping.")
-        self.stop()
+        try:
+            while True:
+                data = self.sock.recvmsg(1024)
+                event = json.loads(data)
+                syslog.syslog(event)
+                self.callback(event)
+                if not data:
+                    break
+        except Exception as e:
+            syslog.syslog("DHCP-PD Agent: dhclient event thread threw exception {}".format(e))
 
 
 class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
