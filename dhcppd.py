@@ -135,30 +135,28 @@ class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
         self.tracer.trace5("Dhclient event {}".format(event))
         reason = event.get('reason')
         if 'new_dhcp6_server_id' in event:
-            self.agentMgr.status_set('DUID Server:', str(event['new_dhcp6_server_id']))
-        if 'new_dhcp6_client_id' in event:
-            self.agentMgr.status_set('DUID Client:', str(event['new_dhcp6_client_id']))
-
+            self.agentMgr.status_set('(A) DUID Server:', str(event['new_dhcp6_server_id']))
         if 'new_ip6_prefix' in event:
-            self.agentMgr.status_set('Delegated Prefix:', str(event['new_ip6_prefix']))
-
+            self.agentMgr.status_set('(B) Delegated Prefix:', str(event['new_ip6_prefix']))
         if 'new_life_starts' in event:
             lifeStarts = int(event['new_life_starts'])
-            self.agentMgr.status_set('Lifetime Starts:', dhcppd.unixTimestampToString(lifeStarts))
+            self.agentMgr.status_set('(C) Lifetime Starts:', dhcppd.unixTimestampToString(lifeStarts))
             if 'new_preferred_life' in event:
                 lifePreferred = int(event['new_preferred_life'])
-                self.agentMgr.status_set('Lifetime Preferred [s]:', str(lifePreferred))
-                self.agentMgr.status_set('Lifetime Preferred Ends:', dhcppd.unixTimestampToString(lifeStarts + lifePreferred))
+                self.agentMgr.status_set('(D) Lifetime Preferred [s]:', str(lifePreferred))
+                self.agentMgr.status_set('(E) Lifetime Preferred Ends:', dhcppd.unixTimestampToString(lifeStarts + lifePreferred))
             if 'new_max_life' in event:
                 lifeValid = int(event['new_max_life'])
-                self.agentMgr.status_set('Lifetime Valid [s]:', str(lifeValid))
-                self.agentMgr.status_set('Lifetime Valid Ends:', dhcppd.unixTimestampToString(lifeStarts + lifeValid))
+                self.agentMgr.status_set('(F) Lifetime Valid [s]:', str(lifeValid))
+                self.agentMgr.status_set('(G) Lifetime Valid Ends:', dhcppd.unixTimestampToString(lifeStarts + lifeValid))
 
+        if 'new_dhcp6_client_id' in event:
+            self.agentMgr.status_set('(H) DUID Client:', str(event['new_dhcp6_client_id']))
         if 'new_iaid' in event:
-            self.agentMgr.status_set('IAID:', str(event['new_iaid']))
+            self.agentMgr.status_set('(I) IAID:', str(event['new_iaid']))
         if 'new_starts' in event:
             iaStarts = int(event['new_starts'])
-            self.agentMgr.status_set('IA Starts:', dhcppd.unixTimestampToString(iaStarts))
+            self.agentMgr.status_set('(J) IA Starts:', dhcppd.unixTimestampToString(iaStarts))
             # RFC3633: Recommended values for T1 and T2 are .5 and .8 times the shortest preferred lifetime of the prefix
             if 'new_renew' in event: # IA T1
                 # The time at which the requesting router should
@@ -166,21 +164,21 @@ class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
                 # prefixes in the IA_PD were obtained to extend the
                 # lifetimes of the prefixes delegated to the IA_PD
                 iaT1 = int(event['new_renew'])
-                self.agentMgr.status_set('IA T1 [s]:', str(iaT1))
+                self.agentMgr.status_set('(K) IA T1 [s]:', str(iaT1))
                 if iaT1 != 0:
-                    self.agentMgr.status_set('IA T1 Ends:', dhcppd.unixTimestampToString(iaStarts + iaT1))
+                    self.agentMgr.status_set('(L) IA T1 Ends:', dhcppd.unixTimestampToString(iaStarts + iaT1))
                 else:
-                    self.agentMgr.status_del('IA T1 Ends:')
+                    self.agentMgr.status_del('(M) IA T1 Ends:')
             if 'new_rebind' in event: # IA T2
                 # The time at which the requesting router should
                 # contact any available delegating router to extend
                 # the lifetimes of the prefixes assigned to the IA_PD
                 iaT2 = int(event['new_rebind'])
-                self.agentMgr.status_set('IA T2 [s]:', str(iaT2))
+                self.agentMgr.status_set('(N) IA T2 [s]:', str(iaT2))
                 if iaT2 != 0:
-                    self.agentMgr.status_set('IA T2 Ends:', dhcppd.unixTimestampToString(iaStarts + iaT2))
+                    self.agentMgr.status_set('(O) IA T2 Ends:', dhcppd.unixTimestampToString(iaStarts + iaT2))
                 else:
-                    self.agentMgr.status_del('IA T2 Ends:')
+                    self.agentMgr.status_del('(P) IA T2 Ends:')
 
         if reason == 'PREINIT6':
             pass # nothing to do
