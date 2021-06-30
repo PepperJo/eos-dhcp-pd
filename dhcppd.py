@@ -129,75 +129,71 @@ class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
 
     @staticmethod
     def unixTimestampToString(unixTimestamp):
-        return datetime.utcfromtimestamp(int(unixTimestamp)).strftime('%Y-%m-%d %H:%M:%S')
+        return datetime.utcfromtimestamp(unixTimestamp).strftime('%Y-%m-%d %H:%M:%S')
 
     def on_dhclient_event(self, event):
-        self.tracer.trace5("Python Agent event {}".format(event))
+        self.tracer.trace5("Dhclient event {}".format(event))
         reason = event.get('reason')
         if 'new_dhcp6_server_id' in event:
-            self.agentMgr.status_set('Server DUID:', str(event['new_dhcp6_server_id']))
+            self.agentMgr.status_set('DUID Server:', str(event['new_dhcp6_server_id']))
         if 'new_dhcp6_client_id' in event:
-            self.agentMgr.status_set('Client DUID:', str(event['new_dhcp6_client_id']))
-        if 'new_iaid' in event:
-            self.agentMgr.status_set('IAID:', str(event['new_iaid']))
+            self.agentMgr.status_set('DUID Client:', str(event['new_dhcp6_client_id']))
+
         if 'new_ip6_prefix' in event:
             self.agentMgr.status_set('Delegated Prefix:', str(event['new_ip6_prefix']))
+
         if 'new_life_starts' in event:
-            self.agentMgr.status_set('Lifetime Starts:', dhcppd.unixTimestampToString(event['new_life_starts']))
-        if 'new_preferred_life' in event:
-            self.agentMgr.status_set('Preferred Lifetime:', str(event['new_preferred_life']))
-        if 'new_max_life' in event:
-            self.agentMgr.status_set('Valid Lifetime:', str(event['new_max_life']))
-        
-        #TODO: renew, rebind, starts
+            lifeStarts = int(event['new_life_starts'])
+            self.agentMgr.status_set('Lifetime Starts:', dhcppd.unixTimestampToString(lifeStarts))
+            if 'new_preferred_life' in event:
+                lifePreferred = int(event['new_preferred_life'])
+                self.agentMgr.status_set('Lifetime Preferred [s]:', str(lifePreferred))
+                self.agentMgr.status_set('Lifetime Preferred Ends:', dhcppd.unixTimestampToString(lifeStarts + lifePreferred))
+            if 'new_max_life' in event:
+                lifeValid = int(event['new_max_life'])
+                self.agentMgr.status_set('Lifetime Valid [s]:', str(lifeValid))
+                self.agentMgr.status_set('Lifetime Valid Ends:', dhcppd.unixTimestampToString(lifeStarts + lifeValid))
+
+        if 'new_iaid' in event:
+            self.agentMgr.status_set('IAID:', str(event['new_iaid']))
+        if 'new_starts' in event:
+            iaStarts = int(event['new_starts'])
+            self.agentMgr.status_set('IA Starts:', dhcppd.unixTimestampToString(iaStarts))
+            # RFC3633: Recommended values for T1 and T2 are .5 and .8 times the shortest preferred lifetime of the prefix
+            if 'new_renew' in event: # IA T1
+                # The time at which the requesting router should
+                # contact the delegating router from which the
+                # prefixes in the IA_PD were obtained to extend the
+                # lifetimes of the prefixes delegated to the IA_PD
+                iaT1 = int(event['new_renew'])
+                self.agentMgr.status_set('IA T1 [s]:', str(iaT1))
+                if iaT1 != 0:
+                    self.agentMgr.status_set('IA T1 Ends:', dhcppd.unixTimestampToString(iaStarts + iaT1))
+                else:
+                    self.agentMgr.status_del('IA T1 Ends:')
+            if 'new_rebind' in event: # IA T2
+                # The time at which the requesting router should
+                # contact any available delegating router to extend
+                # the lifetimes of the prefixes assigned to the IA_PD
+                iaT2 = int(event['new_rebind'])
+                self.agentMgr.status_set('IA T2 [s]:', str(iaT2))
+                if iaT2 != 0:
+                    self.agentMgr.status_set('IA T2 Ends:', dhcppd.unixTimestampToString(iaStarts + iaT2))
+                else:
+                    self.agentMgr.status_del('IA T2 Ends:')
 
         if reason == 'PREINIT6':
             pass # nothing to do
-        elif reason in ['BOUND6', 'RENEW6', 'REBIND6']:
-            # u'old_max_life': u'7500', 
-            # u'old_dhcp6_client_id': u'0:1:0:1:28:6f:20:1f:2:42:ac:13:0:2', 
-            # u'new_dhcp6_server_id': u'0:1:0:1:28:69:b8:ec:2:42:ac:13:0:4', 
-            # u'new_preferred_life': u'7200', 
-            # u'pid': u'1594', 
-            # u'new_renew': u'0', 
-            # u'reason': u'BOUND6', 
-            # u'old_iaid': u'ac:13:00:02', 
-            # u'old_ip6_prefix': u'fcff:0:100::/48', 
-            # u'old_starts': u'1625076065', 
-            # u'interface': u'eth1', 
-            # u'new_life_starts': u'1625076301', 
-            # u'new_iaid': u'ac:13:00:02', 
-            # u'new_rebind': u'0', 
-            # u'old_life_starts': u'1625076065', 
-            # u'new_starts': u'1625076301', 
-            # u'old_rebind': u'0', 
-            # u'old_dhcp6_server_id': u'0:1:0:1:28:69:b8:ec:2:42:ac:13:0:4', 
-            # u'new_dhcp6_client_id': u'0:1:0:1:28:6f:20:1f:2:42:ac:13:0:2', 
-            # u'old_renew': u'0',
-            # u'new_ip6_prefix': u'fcff:0:100::/48', 
-            # u'old_preferred_life': u'7200',
-            # u'new_max_life': u'7500'
-
+        elif reason in ['BOUND6', 'RENEW6', 'REBIND6']:  
             pass
         elif reason == 'DEPREF6':
+            # if prefered lifetime on our lease is up we get a deprefer message.
+            # Since we only support one prefix there is nothing to do
             pass
         elif reason in ['EXPIRE6', 'RELEASE6', 'STOP6']:
-            # u'old_max_life': u'7500', 
-            # u'old_dhcp6_client_id': u'0:1:0:1:28:6f:20:1f:2:42:ac:13:0:2', 
-            # u'old_iaid': u'ac:13:00:02', 
-            # u'old_life_starts': u'1625076301', 
-            # u'pid': u'2612', 
-            # u'interface': u'eth1', 
-            # u'reason': u'RELEASE6', 
-            # u'old_rebind': u'0', 
-            # u'old_ip6_prefix': u'fcff:0:100::/48', 
-            # u'old_starts': u'1625076301', 
-            # u'old_renew': u'0', 
-            # u'old_preferred_life': u'7200', 
-            # u'old_dhcp6_server_id': u'0:1:0:1:28:69:b8:ec:2:42:ac:13:0:4'}
             pass
         else:
-            self.tracer.trace1("Python Agent event {} unknown".format(reason))
+            self.tracer.trace1("Dhclient event {} unknown".format(reason))
                 
 
     @staticmethod
