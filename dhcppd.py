@@ -46,7 +46,7 @@ class dhclient:
         syslog.syslog("DHCP-PD Agent: dhclient socket created")
 
     def start(self):
-        syslog.syslog("DHCP-PD Agent: start dhclient ({})".format(' '.join(self.args)))
+        syslog.syslog("DHCP-PD Agent: start dhclient {}".format(' '.join(self.args)))
         dhclientProcess = subprocess.Popen(['dhclient'] + self.args)
         ret = dhclientProcess.wait()
         if ret != 0:
@@ -74,17 +74,22 @@ class dhclient:
             return True
 
     def handleEvent(self):
-        while True:
-            conn, _ = self.sock.accept()
-            while True:
-                data = self.sock.recv(1024)
-                event = json.loads(data)
-                syslog.syslog(event)
-                self.callback(event)
-                if not data:
-                    break
-            conn.close()
-
+        # retry 3 times before giving up
+        for _ in range(3):
+            try:
+                conn, _ = self.sock.accept()
+                while True:
+                    data = self.sock.recv(1024)
+                    event = json.loads(data)
+                    syslog.syslog(event)
+                    self.callback(event)
+                    if not data:
+                        break
+                conn.close()
+            except Exception as e:
+                syslog.syslog("DHCP-PD Agent: dhclient event thread threw exception {}".format(e))
+        syslog.syslog("DHCP-PD Agent: dhclient event thread retry exceeded. Stopping.")
+        self.stop()
 
 
 class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
@@ -126,9 +131,7 @@ class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
         def callback(event):
             self.on_dhclient_event(event)
         self.dhclient = dhclient(self.workingDir, kernelInterface, callback)
-        syslog.syslog("DHCP-PD Agent: is alive {}".format(self.dhclient.isAlive()))
         self.dhclient.start()
-        syslog.syslog("DHCP-PD Agent: is alive {}".format(self.dhclient.isAlive()))
 
     def on_dhclient_event(self, event):
         self.tracer.trace5("Python Agent event {}".format(event))
