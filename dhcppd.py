@@ -128,8 +128,72 @@ class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
 
     def on_dhclient_event(self, event):
         self.tracer.trace5("Python Agent event {}".format(event))
-        with self.lock:
+        reason = event.get('reason')
+        if 'new_dhcp6_server_id' in event:
+            self.agentMgr.status_set('Server DUID:', event['new_dhcp6_server_id'])
+        if 'new_dhcp6_client_id' in event:
+            self.agentMgr.status_set('Client DUID:', event['new_dhcp6_client_id'])
+        if 'new_iaid' in event:
+            self.agentMgr.status_set('IAID:', event['new_iaid'])
+        if 'new_ip6_prefix' in event:
+            self.agentMgr.status_set('Delegated Prefix:', event['new_ip6_prefix'])
+        if 'new_life_starts' in event:
+            self.agentMgr.status_set('Lifetime Starts:', event['new_life_starts'])
+        if 'new_preferred_life' in event:
+            self.agentMgr.status_set('Preferred Lifetime:', event['new_preferred_life'])
+        if 'new_max_life' in event:
+            self.agentMgr.status_set('Valid Lifetime:', event['new_max_life'])
+        
+        #TODO: renew, rebind, starts
+
+        if reason == 'PREINIT6':
+            pass # nothing to do
+        elif reason in ['BOUND6', 'RENEW6', 'REBIND6']:
+            # u'old_max_life': u'7500', 
+            # u'old_dhcp6_client_id': u'0:1:0:1:28:6f:20:1f:2:42:ac:13:0:2', 
+            # u'new_dhcp6_server_id': u'0:1:0:1:28:69:b8:ec:2:42:ac:13:0:4', 
+            # u'new_preferred_life': u'7200', 
+            # u'pid': u'1594', 
+            # u'new_renew': u'0', 
+            # u'reason': u'BOUND6', 
+            # u'old_iaid': u'ac:13:00:02', 
+            # u'old_ip6_prefix': u'fcff:0:100::/48', 
+            # u'old_starts': u'1625076065', 
+            # u'interface': u'eth1', 
+            # u'new_life_starts': u'1625076301', 
+            # u'new_iaid': u'ac:13:00:02', 
+            # u'new_rebind': u'0', 
+            # u'old_life_starts': u'1625076065', 
+            # u'new_starts': u'1625076301', 
+            # u'old_rebind': u'0', 
+            # u'old_dhcp6_server_id': u'0:1:0:1:28:69:b8:ec:2:42:ac:13:0:4', 
+            # u'new_dhcp6_client_id': u'0:1:0:1:28:6f:20:1f:2:42:ac:13:0:2', 
+            # u'old_renew': u'0',
+            # u'new_ip6_prefix': u'fcff:0:100::/48', 
+            # u'old_preferred_life': u'7200',
+            # u'new_max_life': u'7500'
+
             pass
+        elif reason == 'DEPREF6':
+            pass
+        elif reason in ['EXPIRE6', 'RELEASE6', 'STOP6']:
+            # u'old_max_life': u'7500', 
+            # u'old_dhcp6_client_id': u'0:1:0:1:28:6f:20:1f:2:42:ac:13:0:2', 
+            # u'old_iaid': u'ac:13:00:02', 
+            # u'old_life_starts': u'1625076301', 
+            # u'pid': u'2612', 
+            # u'interface': u'eth1', 
+            # u'reason': u'RELEASE6', 
+            # u'old_rebind': u'0', 
+            # u'old_ip6_prefix': u'fcff:0:100::/48', 
+            # u'old_starts': u'1625076301', 
+            # u'old_renew': u'0', 
+            # u'old_preferred_life': u'7200', 
+            # u'old_dhcp6_server_id': u'0:1:0:1:28:69:b8:ec:2:42:ac:13:0:4'}
+            pass
+        else:
+            self.tracer.trace1("Python Agent event {} unknown".format(reason))
+                
 
     @staticmethod
     def parseRaPrefixOption(value):
