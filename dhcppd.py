@@ -135,19 +135,19 @@ class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
         self.tracer.trace5("Python Agent event {}".format(event))
         reason = event.get('reason')
         if 'new_dhcp6_server_id' in event:
-            self.agentMgr.status_set('Server DUID:', event['new_dhcp6_server_id'])
+            self.agentMgr.status_set('Server DUID:', str(event['new_dhcp6_server_id']))
         if 'new_dhcp6_client_id' in event:
-            self.agentMgr.status_set('Client DUID:', event['new_dhcp6_client_id'])
+            self.agentMgr.status_set('Client DUID:', str(event['new_dhcp6_client_id']))
         if 'new_iaid' in event:
-            self.agentMgr.status_set('IAID:', event['new_iaid'])
+            self.agentMgr.status_set('IAID:', str(event['new_iaid']))
         if 'new_ip6_prefix' in event:
-            self.agentMgr.status_set('Delegated Prefix:', event['new_ip6_prefix'])
+            self.agentMgr.status_set('Delegated Prefix:', str(event['new_ip6_prefix']))
         if 'new_life_starts' in event:
             self.agentMgr.status_set('Lifetime Starts:', dhcppd.unixTimestampToString(event['new_life_starts']))
         if 'new_preferred_life' in event:
-            self.agentMgr.status_set('Preferred Lifetime:', event['new_preferred_life'])
+            self.agentMgr.status_set('Preferred Lifetime:', str(event['new_preferred_life']))
         if 'new_max_life' in event:
-            self.agentMgr.status_set('Valid Lifetime:', event['new_max_life'])
+            self.agentMgr.status_set('Valid Lifetime:', str(event['new_max_life']))
         
         #TODO: renew, rebind, starts
 
