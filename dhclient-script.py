@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 import os
 import sys
@@ -21,7 +21,7 @@ def run(environ):
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
         sock.connect(sockFilePath)
         events = { k: v for k, v in environ.items() if re.match(event_regex, k)}
-        sock.sendmsg(json.dumps(events))
+        sock.sendall(json.dumps(events))
         sock.close()
     except Exception as e:
         syslog.syslog(str(e))

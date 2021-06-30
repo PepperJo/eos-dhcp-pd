@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 import sys
 import syslog
@@ -75,9 +75,9 @@ class dhclient:
     def handleEvent(self):
         try:
             while True:
-                data = self.sock.recvmsg(1024)
+                data = self.sock.recv(1024)
                 event = json.loads(data)
-                syslog.syslog(event)
+                syslog.syslog(str(event))
                 self.callback(event)
                 if not data:
                     break
