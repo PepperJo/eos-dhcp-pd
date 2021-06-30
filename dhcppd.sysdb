@@ -1,4 +1,4 @@
-agentName:dhcppd
+agentName:dhcppd-%sliceId
 
 Include: EosSdk_acl.include
 Include: EosSdk_agent.include

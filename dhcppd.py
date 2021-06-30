@@ -28,25 +28,45 @@ class dhclient:
         self.sock.bind(sockFilePath)
         self.sock.listen(1)
         self.callback = callback
-        self.interface = interface
         self.sockCommThread = threading.Thread(target=self.handleEvent)
         self.sockCommThread.start()
         
-        self.scriptFilePath = workingDir + '/dhclient-script.py'
-        if not os.path.isfile(self.scriptFilePath):
-            syslog.syslog("DHCP-PD Agent: dhclient script file missing ({})".format(self.scriptFilePath))
+        scriptFilePath = workingDir + '/dhclient-script.py'
+        if not os.path.isfile(scriptFilePath):
+            syslog.syslog("DHCP-PD Agent: dhclient script file missing ({})".format(scriptFilePath))
             raise ValueError()
         self.pidFilePath = workingDir + '/dhclient.pid'
-        self.leaseFilePath = workingDir + '/dhclient.lease'
-        syslog.syslog("DHCP-PD Agent: dhclient Socket Created")
+        leaseFilePath = workingDir + '/dhclient.lease'
+        # -6 = ipv6, -P = prefix delegation, -nw = do not wait for ip acquired
+        self.args = ['-6', '-P', '-nw', '-sf', scriptFilePath, '-pf', self.pidFilePath, 'lf', leaseFilePath, interface]
+        syslog.syslog("DHCP-PD Agent: dhclient socket created")
 
     def start(self):
         syslog.syslog("DHCP-PD Agent: start")
+        dhclientProcess = subprocess.Popen(['/usr/sbin/dhclient'] + self.args)
+        ret = dhclientProcess.wait()
+        if ret != 0:
+            syslog.syslog("DHCP-PD Agent: unable to start dhclient (return code = {})".format(ret))
 
     def stop(self):
         syslog.syslog("DHCP-PD Agent: stop")
-        # release leases and stop
-        pass
+        # release leases and stop dhclient
+        dhclientProcess = subprocess.Popen(['/usr/sbin/dhclient', '-r'] + self.args)
+        ret = dhclientProcess.wait()
+        if ret != 0:
+            syslog.syslog("DHCP-PD Agent: unable to release leases (return code = {})".format(ret))
+
+    def isAlive(self):
+        try:
+            with open(self.pidFilePath, 'r') as f:
+                pid = f.readline()
+            if not pid:
+                return False
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        else:
+            return True
 
     def handleEvent(self):
         while True:
@@ -59,7 +79,6 @@ class dhclient:
                     self.callback(event)
                     if not data:
                         break
-            # TODO: check if dhclient is still alive
 
 
 
@@ -71,9 +90,6 @@ class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
         self.tracer = eossdk.Tracer("DHCP-PD-Agent")
         eossdk.AgentHandler.__init__(self, self.agentMgr)
         eossdk.IntfHandler.__init__(self, self.interfaceMgr)
-
-        for intf in self.interfaceMgr.intf_iter():
-            syslog.syslog(intf.to_string())
         
         self.dhcpInterface = dhcpInterface
         self.workingDir = workingDir
@@ -89,7 +105,6 @@ class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
     def on_initialized(self):
         self.tracer.trace0("Initialized")
         syslog.syslog("DHCP-PD Agent Initialized")
-        self.agentMgr.status_set("Status: ", "Initializing")
 
         intf = eossdk.IntfId(self.dhcpInterface)
         if not self.interfaceMgr.exists(intf):
@@ -106,8 +121,9 @@ class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
         def callback(event):
             self.on_dhclient_event(event)
         self.dhclient = dhclient(self.workingDir, kernelInterface, callback)
+        syslog.syslog("DHCP-PD Agent: is alive {}".format(self.dhclient.isAlive()))
         self.dhclient.start()
-        self.agentMgr.status_set("Status: ", "Running")
+        syslog.syslog("DHCP-PD Agent: is alive {}".format(self.dhclient.isAlive()))
 
     def on_dhclient_event(self, event):
         self.tracer.trace5("Python Agent event {}".format(event))
