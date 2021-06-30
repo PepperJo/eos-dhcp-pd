@@ -38,20 +38,20 @@ class dhclient:
         self.pidFilePath = workingDir + '/dhclient.pid'
         leaseFilePath = workingDir + '/dhclient.lease'
         # -6 = ipv6, -P = prefix delegation, -nw = do not wait for ip acquired
-        self.args = ['-6', '-P', '-nw', '-sf', scriptFilePath, '-pf', self.pidFilePath, 'lf', leaseFilePath, interface]
+        self.args = ['-6', '-P', '-nw', '-sf', scriptFilePath, '-pf', self.pidFilePath, '-lf', leaseFilePath, interface]
         syslog.syslog("DHCP-PD Agent: dhclient socket created")
 
     def start(self):
-        syslog.syslog("DHCP-PD Agent: start")
-        dhclientProcess = subprocess.Popen(['/usr/sbin/dhclient'] + self.args)
+        syslog.syslog("DHCP-PD Agent: start dhclient ({})".format(' '.join(self.args)))
+        dhclientProcess = subprocess.Popen(['dhclient'] + self.args)
         ret = dhclientProcess.wait()
         if ret != 0:
             syslog.syslog("DHCP-PD Agent: unable to start dhclient (return code = {})".format(ret))
 
     def stop(self):
-        syslog.syslog("DHCP-PD Agent: stop")
+        syslog.syslog("DHCP-PD Agent: stop dhclient")
         # release leases and stop dhclient
-        dhclientProcess = subprocess.Popen(['/usr/sbin/dhclient', '-r'] + self.args)
+        dhclientProcess = subprocess.Popen(['dhclient', '-r', '-x'] + self.args)
         ret = dhclientProcess.wait()
         if ret != 0:
             syslog.syslog("DHCP-PD Agent: unable to release leases (return code = {})".format(ret))
@@ -63,7 +63,7 @@ class dhclient:
             if not pid:
                 return False
             os.kill(pid, 0)
-        except OSError:
+        except Exception:
             return False
         else:
             return True
@@ -71,14 +71,14 @@ class dhclient:
     def handleEvent(self):
         while True:
             conn, _ = self.sock.accept()
-            with conn:
-                while True:
-                    data = self.sock.recv(1024)
-                    event = json.loads(data)
-                    syslog.syslog(event)
-                    self.callback(event)
-                    if not data:
-                        break
+            while True:
+                data = self.sock.recv(1024)
+                event = json.loads(data)
+                syslog.syslog(event)
+                self.callback(event)
+                if not data:
+                    break
+            conn.close()
 
 
 
@@ -110,13 +110,13 @@ class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
         if not self.interfaceMgr.exists(intf):
             self.tracer.trace0("Interface {} does not exist".format(self.dhcpInterface))
             syslog.syslog("DHCP-PD Agent: Interface {} does not exist".format(self.dhcpInterface))
-            raise ValueError()
+            return
 
         kernelInterface = self.interfaceMgr.kernel_intf_name(intf)
         if not kernelInterface:
             self.tracer.trace0("Interface {} does not have a kernel interface".format(self.dhcpInterface))
             syslog.syslog("DHCP-PD Agent: Interface {} does not have a kernel interfac".format(self.dhcpInterface))
-            raise ValueError()
+            return
 
         def callback(event):
             self.on_dhclient_event(event)
