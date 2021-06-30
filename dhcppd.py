@@ -38,7 +38,11 @@ class dhclient:
         self.pidFilePath = workingDir + '/dhclient.pid'
         leaseFilePath = workingDir + '/dhclient.lease'
         # -6 = ipv6, -P = prefix delegation, -nw = do not wait for ip acquired
-        self.args = ['-6', '-P', '-nw', '-sf', scriptFilePath, '-pf', self.pidFilePath, '-lf', leaseFilePath, interface]
+        self.args = ['-6', '-P', '-nw', 
+                     '-e', 'SOCK_FILE=\"{}\"'.format(sockFilePath),
+                     '-sf', scriptFilePath,
+                     '-pf', self.pidFilePath,
+                     '-lf', leaseFilePath, interface]
         syslog.syslog("DHCP-PD Agent: dhclient socket created")
 
     def start(self):
@@ -50,11 +54,12 @@ class dhclient:
 
     def stop(self):
         syslog.syslog("DHCP-PD Agent: stop dhclient")
-        # release leases and stop dhclient
-        dhclientProcess = subprocess.Popen(['dhclient', '-r', '-x'] + self.args)
-        ret = dhclientProcess.wait()
-        if ret != 0:
-            syslog.syslog("DHCP-PD Agent: unable to release leases (return code = {})".format(ret))
+        if self.isAlive():
+            # release leases and stop dhclient
+            dhclientProcess = subprocess.Popen(['dhclient', '-r'] + self.args)
+            ret = dhclientProcess.wait()
+            if ret != 0:
+                syslog.syslog("DHCP-PD Agent: unable to release leases (return code = {})".format(ret))
 
     def isAlive(self):
         try:
@@ -62,7 +67,7 @@ class dhclient:
                 pid = f.readline()
             if not pid:
                 return False
-            os.kill(pid, 0)
+            os.kill(int(pid), 0)
         except Exception:
             return False
         else:
