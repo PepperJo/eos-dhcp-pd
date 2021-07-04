@@ -137,7 +137,13 @@ class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
         if 'new_dhcp6_server_id' in event:
             self.agentMgr.status_set('(A) DUID Server:', str(event['new_dhcp6_server_id']))
         if 'new_ip6_prefix' in event:
-            self.agentMgr.status_set('(B) Delegated Prefix:', str(event['new_ip6_prefix']))
+            delegatedPrefixStr = str(event['new_ip6_prefix'])
+            newDelegatedPrefix = dhcppd.parseDelegatedPrefix48(delegatedPrefixStr)
+            if newDelegatedPrefix is None:
+                self.tracer.trace1("Dhclient got invalid prefix {}".format(delegatedPrefixStr))
+                self.agentMgr.status_set('(B) Delegated Prefix:', 'invalid prefix {}'.format(delegatedPrefixStr))
+            else:
+                self.agentMgr.status_set('(B) Delegated Prefix:', delegatedPrefixStr)
         if 'new_life_starts' in event and 'new_preferred_life' in event and 'new_max_life' in event:
             lifeStarts = int(event['new_life_starts'])
             self.agentMgr.status_set('(C) Lifetime Starts:', dhcppd.unixTimestampToString(lifeStarts))
@@ -182,17 +188,51 @@ class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
 
         if reason == 'PREINIT6':
             pass # nothing to do
-        elif reason in ['BOUND6', 'RENEW6', 'REBIND6']:  
-            pass
+        elif reason in ['BOUND6', 'RENEW6', 'REBIND6']:
+            # BOUND6 = We received a DHCPv6 reply with a prefix
+            # RENEW6 = The lease was renewed (same prefix)
+            # REBIND6 = Bound to a new DHCP server
+            if newDelegatedPrefix is not None:
+                with self.lock:
+                    if self.delegatedPrefix != newDelegatedPrefix:
+                        if self.delegatedPrefix is not None:
+                            self.removeAllPrefixRAs()
+                        self.delegatedPrefix = newDelegatedPrefix
+                        self.addPrefixRAsToAll()
         elif reason == 'DEPREF6':
             # if prefered lifetime on our lease is up we get a deprefer message.
             # Since we only support one prefix there is nothing to do
             pass
         elif reason in ['EXPIRE6', 'RELEASE6', 'STOP6']:
-            pass
+            # EXPIRE6 = The lease expires and we failed to obtain a new one
+            # RELEASE6 = The client relinquishes the prefix (dhclient -r)
+            # STOP6 = Stopping DHCP client with (dhclient -x)
+            with self.lock:
+                self.removeAllPrefixRAs()
+                self.delegatedPrefix = None
         else:
             self.tracer.trace1("Dhclient event {} unknown".format(reason))
-                
+    
+    # Should be called with lock held
+    def removeAllPrefixRAs(self):
+        for interface, (slaId, _) in self.raPrefixes:
+            self.removePrefixRA(interface, slaId)
+
+    def addPrefixRAsToAll(self):
+        for interface, (slaId, options) in self.raPrefixes.items():
+            self.addPrefixRA(interface, slaId, options)
+
+    # Should be called with lock held
+    def addPrefixRA(self, interface, slaId, options):
+        ndRaCommand = 'ipv6 nd prefix {} {}'.format(dhcppd.prefix48to64(self.delegatedPrefix, slaId), options)
+        syslog.syslog(ndRaCommand)
+        self.raPrefixes[interface] = (slaId, options)
+
+    # Should be called with lock held
+    def removePrefixRA(self, interface, slaId):
+        ndRaCommand = 'no ipv6 nd prefix {}'.format(dhcppd.prefix48to64(self.delegatedPrefix, slaId))
+        syslog.syslog(ndRaCommand)
+        del self.raPrefixes[interface]
 
     @staticmethod
     def parseRaPrefixOption(value):
@@ -224,15 +264,16 @@ class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
         return prefix48 + ':' + slaId + '::/64'
 
     # all options are interpreted as RA interfaces
-    def on_agent_option(self, optionName, value):         
+    def on_agent_option(self, interface, value):         
         if not value:
-            # TODO: remove assigned prefixes
-            self.tracer.trace3("RA prefix interface {} deleted".format(optionName))
+            with self.lock:
+                self.removePrefixRA(interface, self.raPrefixes[interface])
+            self.tracer.trace3("RA prefix interface {} deleted".format(interface))
         else:
-            intf = eossdk.IntfId(optionName)
-            if not self.interfaceMgr.exists(intf):
-                self.tracer.trace1("RA prefix interface {} does not exist. Ignoring.".format(optionName))
-                syslog.syslog("DHCP-PD Agent: RA prefix interface {} does not exist. Ignoring.".format(optionName))
+            interfaceId = eossdk.IntfId(interface)
+            if not self.interfaceMgr.exists(interfaceId):
+                self.tracer.trace1("RA prefix interface {} does not exist. Ignoring.".format(interface))
+                syslog.syslog("DHCP-PD Agent: RA prefix interface {} does not exist. Ignoring.".format(interface))
                 return
             
             slaId, options = dhcppd.parseRaPrefixOption(value)
@@ -241,25 +282,28 @@ class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
                 if slaIdInt < 1 or slaIdInt > 0xFFFF:
                     raise ValueError()
             except ValueError:
-                self.tracer.trace1("RA prefix interface {} invalid SLA_ID = {}. Expecting 16bit hex value. Ignoring.".format(optionName, value))
+                self.tracer.trace1("RA prefix interface {} invalid SLA_ID = {}. Expecting 16bit hex value. Ignoring.".format(interface, value))
                 return
             
-            if optionName in self.raPrefixes:
-                slaIdOld, optionsOld = self.raPrefixes[optionName]
+            if interface in self.raPrefixes:
+                slaIdOld, optionsOld = self.raPrefixes[interface]
                 if slaId != slaIdOld:
-                    self.tracer.trace5("RA prefix interface {} remove old SLA_ID {}".format(optionName, slaIdOld))
-                    pass # TODO: remove old
+                    # SLA_ID changed
+                    self.tracer.trace5("RA prefix interface {} remove old prefix with SLA_ID {}".format(interface, slaIdOld))
+                    with self.lock:
+                        self.removePrefixRA(interface, slaIdOld)
                 elif options == optionsOld:
                     # slaId and options are equal to old values => do nothing
                     return
                 else:
-                    self.tracer.trace5("RA prefix interface {} update options \"{}\" => \"{}\"".format(optionName, optionsOld, options))
+                    # options updated
+                    self.tracer.trace5("RA prefix interface {} update options \"{}\" => \"{}\"".format(interface, optionsOld, options))
             
-            self.raPrefixes[optionName] = (slaId, options)
             with self.lock:
                 if self.delegatedPrefix is not None:
-                    # TODO: actually add prefix
-                    self.tracer.trace5("RA prefix interface {} add {} {}".format(optionName, slaId, options))
+                    with self.lock:
+                        self.addPrefixRA(interface, slaId, options)
+                    self.tracer.trace5("RA prefix interface {} add {} {}".format(interface, slaId, options))
 
     def on_agent_enabled(self, enabled):
         if not enabled:
