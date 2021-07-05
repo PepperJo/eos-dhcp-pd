@@ -83,7 +83,7 @@ class dhclient:
                 if not data:
                     break
         except Exception as e:
-            syslog.syslog("DHCP-PD Agent: dhclient event thread threw exception {}".format(e))
+            syslog.syslog("DHCP-PD Agent: dhclient event thread threw exception: {}".format(e))
 
 
 class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
@@ -127,8 +127,8 @@ class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
         self.dhclient = dhclient(self.workingDir, kernelInterface, callback)
         self.dhclient.start()
 
-        for optionName, value in self.agentMgr.agent_option_iter():
-            self.on_agent_option(optionName, value)
+        for optionName in self.agentMgr.agent_option_iter():
+            self.on_agent_option(optionName, self.agentMgr.agent_option(optionName))
 
     @staticmethod
     def unixTimestampToString(unixTimestamp):
@@ -218,7 +218,7 @@ class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
     
     # Should be called with lock held
     def removeAllPrefixRAs(self):
-        for interface, (slaId, _) in self.raPrefixes:
+        for interface, (slaId, _) in self.raPrefixes.items():
             self.removePrefixRA(interface, slaId)
 
     def addPrefixRAsToAll(self):
