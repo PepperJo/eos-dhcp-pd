@@ -326,11 +326,13 @@ class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
                     # options updated
                     self.tracer.trace5("RA prefix interface {} update options \"{}\" => \"{}\"".format(interface, optionsOld, options))
             
+            self.tracer.trace5("RA prefix interface {} add {} {}".format(interface, slaId, options))
             with self.lock:
                 if self.delegatedPrefix is not None:
-                    with self.lock:
-                        self.addPrefixRA(interface, slaId, options)
-                    self.tracer.trace5("RA prefix interface {} add {} {}".format(interface, slaId, options))
+                    self.addPrefixRA(interface, slaId, options)
+                else:
+                    self.raPrefixes[interface] = (slaId, options)
+
 
     def on_agent_enabled(self, enabled):
         if not enabled:
