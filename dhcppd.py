@@ -127,6 +127,9 @@ class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
         self.dhclient = dhclient(self.workingDir, kernelInterface, callback)
         self.dhclient.start()
 
+        for optionName, value in self.agentMgr.agent_option_iter():
+            self.on_agent_option(optionName, value)
+
     @staticmethod
     def unixTimestampToString(unixTimestamp):
         return datetime.utcfromtimestamp(unixTimestamp).strftime('%Y-%m-%d %H:%M:%S')
@@ -224,15 +227,33 @@ class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
 
     # Should be called with lock held
     def addPrefixRA(self, interface, slaId, options):
-        ndRaCommand = 'ipv6 nd prefix {} {}'.format(dhcppd.prefix48to64(self.delegatedPrefix, slaId), options)
-        syslog.syslog(ndRaCommand)
+        if options is None:
+            ndRaCommand = 'ipv6 nd prefix {}'.format(dhcppd.prefix48to64(self.delegatedPrefix, slaId))
+        else:
+            ndRaCommand = 'ipv6 nd prefix {} {}'.format(dhcppd.prefix48to64(self.delegatedPrefix, slaId), options)
         self.raPrefixes[interface] = (slaId, options)
+        interfaceCommand = 'interface {}'.format(interface)
+        result = self.eapiMgr.run_config_cmds([interfaceCommand, ndRaCommand])
+        if result.success():
+            self.tracer.trace5("Successfully configured RA prefix interface {} ({})".format(interface, ndRaCommand))
+            syslog.syslog("DHCP-PD Agent: Successfully configured RA prefix interface {} ({})".format(interface, ndRaCommand))
+        else:
+            self.tracer.trace1("Error configuring RA prefix interface {} ({}): {}".format(interface, ndRaCommand, result.error_message()))
+            syslog.syslog("DHCP-PD Agent: Error configuring RA prefix interface {} ({}): {}".format(interface, ndRaCommand, result.error_message()))
+
 
     # Should be called with lock held
     def removePrefixRA(self, interface, slaId):
-        ndRaCommand = 'no ipv6 nd prefix {}'.format(dhcppd.prefix48to64(self.delegatedPrefix, slaId))
-        syslog.syslog(ndRaCommand)
         del self.raPrefixes[interface]
+        ndRaCommand = 'no ipv6 nd prefix {}'.format(dhcppd.prefix48to64(self.delegatedPrefix, slaId))
+        interfaceCommand = 'interface {}'.format(interface)
+        result = self.eapiMgr.run_config_cmds([interfaceCommand, ndRaCommand])
+        if result.success():
+            self.tracer.trace5("Successfully removed prefix from {} ({})".format(interface, ndRaCommand))
+            syslog.syslog("DHCP-PD Agent: Successfully removed prefix from interface {} ({})".format(interface, ndRaCommand))
+        else:
+            self.tracer.trace1("Error removing prefix from {} ({}): {}".format(interface, ndRaCommand, result.error_message()))
+            syslog.syslog("DHCP-PD Agent: Error removing prefix from {} ({}): {}".format(interface, ndRaCommand, result.error_message()))
 
     @staticmethod
     def parseRaPrefixOption(value):
@@ -270,7 +291,13 @@ class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
                 self.removePrefixRA(interface, self.raPrefixes[interface])
             self.tracer.trace3("RA prefix interface {} deleted".format(interface))
         else:
-            interfaceId = eossdk.IntfId(interface)
+            try:
+                interfaceId = eossdk.IntfId(interface)
+            except Exception as e:
+                syslog.syslog("DHCP-PD Agent: option invalid: {}. Ignoring.".format(str(e)))
+                self.tracer.trace1("option invalid: {}. Ignoring.".format(str(e)))
+                return
+
             if not self.interfaceMgr.exists(interfaceId):
                 self.tracer.trace1("RA prefix interface {} does not exist. Ignoring.".format(interface))
                 syslog.syslog("DHCP-PD Agent: RA prefix interface {} does not exist. Ignoring.".format(interface))
