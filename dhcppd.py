@@ -12,6 +12,7 @@ import re
 from datetime import datetime
 
 prefix48Regex = re.compile("^([a-fA-F0-9]{1,4}:){1,3}:\\/48$")
+dhclientTimeout = 60*5 # 5 minutes
 
 class dhclient:
     def __init__(self, workingDir, interface, callback):
@@ -76,24 +77,26 @@ class dhclient:
     def handleEvent(self):
         try:
             while True:
-                data = self.sock.recv(1024)
+                data = self.sock.recv(4096)
                 event = json.loads(data)
-                syslog.syslog(str(event))
                 self.callback(event)
                 if not data:
                     break
         except Exception as e:
             syslog.syslog("DHCP-PD Agent: dhclient event thread threw exception: {}".format(e))
+            self.stop()
 
 
-class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
+class dhcppd(eossdk.AgentHandler, eossdk.TimeoutHandler, eossdk.IntfHandler):
     def __init__(self, sdk, dhcpInterface, workingDir):
         self.agentMgr = sdk.get_agent_mgr()
         self.interfaceMgr = sdk.get_intf_mgr()
         self.eapiMgr = sdk.get_eapi_mgr()
+        self.timeoutMgr = sdk.get_timeout_mgr()
         self.tracer = eossdk.Tracer("DHCP-PD-Agent")
         eossdk.AgentHandler.__init__(self, self.agentMgr)
         eossdk.IntfHandler.__init__(self, self.interfaceMgr)
+        eossdk.TimeoutHandler.__init__(self, self.timeoutMgr)
         
         self.dhcpInterface = dhcpInterface
         self.workingDir = workingDir
@@ -122,20 +125,27 @@ class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
             syslog.syslog("DHCP-PD Agent: Interface {} does not have a kernel interfac".format(self.dhcpInterface))
             return
 
-        def callback(event):
-            self.on_dhclient_event(event)
-        self.dhclient = dhclient(self.workingDir, kernelInterface, callback)
+        self.dhclient = dhclient(self.workingDir, kernelInterface, self.on_dhclient_event)
         self.dhclient.start()
 
         for optionName in self.agentMgr.agent_option_iter():
             self.on_agent_option(optionName, self.agentMgr.agent_option(optionName))
+
+        self.timeout_time_is(eossdk.now())
+
+    def on_timeout(self):
+        if not self.dhclient.isAlive():
+            self.tracer.trace0("Dhclient is not alive. Restarting.")
+            syslog.syslog("DHCP-PD Agent dhclient is not alive. Restarting.")
+            self.dhclient.start()
+        self.timeout_time_is(eossdk.now() + dhclientTimeout)
 
     @staticmethod
     def unixTimestampToString(unixTimestamp):
         return datetime.utcfromtimestamp(unixTimestamp).strftime('%Y-%m-%d %H:%M:%S')
 
     def on_dhclient_event(self, event):
-        self.tracer.trace5("Dhclient event {}".format(event))
+        self.tracer.trace0("Dhclient event {}".format(event))
         reason = event.get('reason')
         if 'new_dhcp6_server_id' in event:
             self.agentMgr.status_set('(A) DUID Server:', str(event['new_dhcp6_server_id']))
@@ -336,8 +346,14 @@ class dhcppd(eossdk.AgentHandler, eossdk.IntfHandler):
 
     def on_agent_enabled(self, enabled):
         if not enabled:
-            # TODO: remove all assigned prefixes
             self.dhclient.stop()
+            # Stopping the dhclient will result in an RELEASE event
+            # however we might have already been stopped or the dhclient
+            # might not be running in the first place
+            # so remove everything while we still have a chance
+            with self.lock:
+                self.removeAllPrefixRAs()
+                self.delegatedPrefix = None
             self.agentMgr.agent_shutdown_complete_is(True)
 
         
